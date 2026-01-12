@@ -138,7 +138,12 @@
         await view.whenLayerView(webscene.layers.getItemAt(0)).catch(() => {}); // best-effort
         await view.goTo(view.camera, { animate: false });
 
-        center = view.center.clone();
+        center = new Point({
+  x: -13618250,   // <-- put your X here
+  y: 6049110,     // <-- put your Y here
+  spatialReference: view.spatialReference
+});
+
         const camPos = view.camera.position;
 
         // Keep current height & tilt
