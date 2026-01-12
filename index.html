@@ -54,6 +54,9 @@
         map: webscene,
         qualityProfile: "high"
       });
+view.on("click", (e) => {
+  console.log("CLICK:", e.mapPoint.toJSON());
+});
 
       const toggleBtn = document.getElementById("toggleBtn");
       const speedSlider = document.getElementById("speed");
