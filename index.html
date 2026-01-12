@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Orbiting WebScene</title>
+
+  <!-- ArcGIS Maps SDK for JavaScript (4.x) -->
+  <link rel="stylesheet" href="https://js.arcgis.com/4.29/esri/themes/light/main.css" />
+  <script src="https://js.arcgis.com/4.29/"></script>
+
+  <style>
+    html, body, #viewDiv { height: 100%; width: 100%; margin: 0; padding: 0; }
+    .ui {
+      position: absolute; top: 12px; left: 12px; z-index: 10;
+      background: rgba(255,255,255,0.9); padding: 10px 12px; border-radius: 10px;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; font-size: 14px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    }
+    .ui button { margin-right: 8px; }
+    .ui label { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+    .ui input[type="range"] { width: 160px; vertical-align: middle; }
+    .hint { margin-top: 6px; opacity: 0.75; font-size: 12px; }
+  </style>
+</head>
+
+<body>
+  <div id="viewDiv"></div>
+
+  <div class="ui">
+    <button id="toggleBtn">Pause</button>
+    <label>
+      Speed
+      <input id="speed" type="range" min="1" max="60" value="10" />
+      <span id="speedVal">10</span>°/min
+    </label>
+    <div class="hint">Tip: drag/scroll/keys will auto-pause. Click “Resume” to continue.</div>
+  </div>
+
+  <script>
+    require([
+      "esri/WebScene",
+      "esri/views/SceneView",
+      "esri/geometry/Point"
+    ], (WebScene, SceneView, Point) => {
+
+      // TODO: Replace with your Web Scene item id
+      const webscene = new WebScene({
+        portalItem: { id: "e3e5019c11b442a29193a3a4429b074e" }
+      });
+
+      const view = new SceneView({
+        container: "viewDiv",
+        map: webscene,
+        qualityProfile: "high"
+      });
+
+      const toggleBtn = document.getElementById("toggleBtn");
+      const speedSlider = document.getElementById("speed");
+      const speedVal = document.getElementById("speedVal");
+
+      let running = true;
+      let rafId = null;
+
+      // Orbit parameters (initialized after view loads)
+      let center = null;     // orbit center (Point)
+      let radius = null;     // in map units (meters-ish in WebMercator)
+      let z = null;          // camera height
+      let tilt = null;       // keep current tilt
+
+      // Degrees per minute (nice for “slow circle” kiosks)
+      let degPerMinute = Number(speedSlider.value);
+      speedVal.textContent = String(degPerMinute);
+
+      speedSlider.addEventListener("input", () => {
+        degPerMinute = Number(speedSlider.value);
+        speedVal.textContent = String(degPerMinute);
+      });
+
+      function stop() {
+        running = false;
+        toggleBtn.textContent = "Resume";
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = null;
+      }
+
+      function start() {
+        if (!center || !radius) return;
+        running = true;
+        toggleBtn.textContent = "Pause";
+        lastT = performance.now();
+        tick(lastT);
+      }
+
+      toggleBtn.addEventListener("click", () => (running ? stop() : start()));
+
+      // Auto-pause on any user interaction
+      ["drag", "mouse-wheel", "key-down", "hold", "double-click"].forEach((evt) => {
+        view.on(evt, () => { if (running) stop(); });
+      });
+
+      // Orbit loop
+      let heading = 0;
+      let lastT = null;
+
+      function tick(t) {
+        if (!running) return;
+
+        const dt = (t - lastT) / 1000; // seconds
+        lastT = t;
+
+        // Convert deg/min to deg/sec
+        const degPerSecond = degPerMinute / 60;
+        heading = (heading + degPerSecond * dt) % 360;
+
+        // Compute new camera XY position around the center
+        // Assumes projected units (e.g., WebMercator) where x/y are linear.
+        const rad = heading * Math.PI / 180;
+        const x = center.x + radius * Math.cos(rad);
+        const y = center.y + radius * Math.sin(rad);
+
+        const cam = view.camera.clone();
+        cam.position = new Point({
+          x, y, z,
+          spatialReference: center.spatialReference
+        });
+        cam.heading = (heading + 90) % 360; // face toward center-ish
+        cam.tilt = tilt;
+
+        // Set camera without easing for smooth continuous motion
+        view.camera = cam;
+
+        rafId = requestAnimationFrame(tick);
+      }
+
+      view.when(async () => {
+        // Let the scene settle, then capture an orbit center & radius from current camera
+        await view.whenLayerView(webscene.layers.getItemAt(0)).catch(() => {}); // best-effort
+        await view.goTo(view.camera, { animate: false });
+
+        center = view.center.clone();
+        const camPos = view.camera.position;
+
+        // Keep current height & tilt
+        z = camPos.z;
+        tilt = view.camera.tilt;
+
+        // Radius from camera position to center in map units
+        radius = Math.hypot(camPos.x - center.x, camPos.y - center.y);
+
+        // Start from current heading for continuity
+        heading = view.camera.heading;
+
+        start();
+      });
+
+    });
+  </script>
+</body>
+</html>
